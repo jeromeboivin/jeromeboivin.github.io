@@ -1,6 +1,6 @@
 # Jerome Boivin's Public Projects
 
-Welcome to my portfolio! Here you'll find interactive tools and projects I've created. Feel free to explore, use them, and share your feedback.
+Welcome to my portfolio! Here you'll find interactive tools and projects I've created. Feel free to explore and use them.
 
 ---
 
@@ -18,6 +18,9 @@ An interactive web-based tool designed to help you master rhythm patterns and im
 
 ### Try It Out
 👉 **[Launch Rhythm Pattern Trainer](./RhythmPatternTrainer/index.html)**
+
+### Repository
+📦 **[View Source Code](https://github.com/jeromeboivin/RhythmPatternTrainer)**
 
 ---
 
