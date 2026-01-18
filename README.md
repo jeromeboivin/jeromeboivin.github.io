@@ -23,9 +23,3 @@ An interactive web-based tool designed to help you master rhythm patterns and im
 📦 **[View Source Code](https://github.com/jeromeboivin/RhythmPatternTrainer)**
 
 ---
-
-## About
-
-I'm a developer passionate about creating interactive learning tools and exploring innovative ways to make music training more accessible and engaging.
-
-**Happy practicing! 🎶**
