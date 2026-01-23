@@ -278,10 +278,11 @@
             font-size: 4rem;
             letter-spacing: 10px;
             font-weight: bold;
+            font-family: 'Petaluma', 'Times New Roman', serif;
         }
 
         .pattern-notes-text.font-default {
-            font-family: 'Segoe UI Symbol', 'Apple Symbols', sans-serif;
+            font-family: 'Petaluma', 'Times New Roman', serif;
         }
 
         .pattern-notes-text.font-serif {
@@ -445,9 +446,10 @@
         }
 
         .pattern-preview {
+            font-family: 'Petaluma', 'Times New Roman', serif;
             font-size: 1.2rem;
             color: var(--note-color);
-            min-width: 40px;
+            min-width: 60px;
             display: inline-block;
         }
 
@@ -785,6 +787,14 @@
         /* Mobile adjustments */
         @media (max-width: 768px) {
             .pianoroll-note.quarter { width: 100px; }
+        }
+
+        @font-face {
+            font-family: 'Petaluma';
+            src: url('https://cdn.jsdelivr.net/gh/steinbergmedia/petaluma@master/redist/otf/Petaluma.otf') format('opentype');
+            font-weight: normal;
+            font-style: normal;
+            font-display: swap;
         }
     </style>
 </head>
