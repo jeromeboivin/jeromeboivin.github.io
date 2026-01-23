@@ -71,6 +71,15 @@
             }
         }
 
+        /* bravura-latin-400-normal */
+        @font-face {
+            font-family: 'Bravura';
+            font-style: normal;
+            font-display: swap;
+            font-weight: 400;
+            src: url(https://cdn.jsdelivr.net/fontsource/fonts/bravura@latest/latin-400-normal.woff2) format('woff2'), url(https://cdn.jsdelivr.net/fontsource/fonts/bravura@latest/latin-400-normal.woff) format('woff');
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
@@ -278,15 +287,15 @@
             font-size: 4rem;
             letter-spacing: 10px;
             font-weight: bold;
-            font-family: 'Times New Roman', serif;
+            font-family: 'Bravura', 'Times New Roman', serif;
         }
 
         .pattern-notes-text.font-default {
-            font-family: 'Times New Roman', serif;
+            font-family: 'Bravura', 'Times New Roman', serif;
         }
 
         .pattern-notes-text.font-serif {
-            font-family: 'Times New Roman', Georgia, serif;
+            font-family: 'Bravura', 'Times New Roman', Georgia, serif;
             font-size: 4.5rem;
         }
 
@@ -446,7 +455,7 @@
         }
 
         .pattern-preview {
-            font-family: 'Times New Roman', serif;
+            font-family: 'Bravura', 'Times New Roman', serif;
             font-size: 1.2rem;
             color: var(--note-color);
             min-width: 40px;
@@ -1201,7 +1210,7 @@
                     { type: 'eighth', isRest: false },
                     { type: 'sixteenth', isRest: false }
                 ],
-                symbol: "𝅘𝅥𝅯♪𝅘𝅥𝅯"
+                symbol: "𝅘𝅥𝅯♪𝅘𝅥𝅯"
             },
             {
                 id: "dotted-eighth-sixteenth",
@@ -1209,7 +1218,7 @@
                     { type: 'dotted-eighth', isRest: false },
                     { type: 'sixteenth', isRest: false }
                 ],
-                symbol: "♪. 𝅘𝅥𝅯"
+                symbol: "♪. 𝅘𝅥𝅯"
             },
             {
                 id: "sixteenth-dotted-eighth",
@@ -1217,7 +1226,7 @@
                     { type: 'sixteenth', isRest: false },
                     { type: 'dotted-eighth', isRest: false }
                 ],
-                symbol: "𝅘𝅥𝅯 ♪."
+                symbol: "𝅘𝅥𝅯 ♪."
             }
         ];
 
