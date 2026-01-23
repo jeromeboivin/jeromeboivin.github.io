@@ -278,11 +278,10 @@
             font-size: 4rem;
             letter-spacing: 10px;
             font-weight: bold;
-            font-family: 'Bravura', 'Times New Roman', serif;
         }
 
         .pattern-notes-text.font-default {
-            font-family: 'Bravura', 'Times New Roman', serif;
+            font-family: 'Segoe UI Symbol', 'Apple Symbols', sans-serif;
         }
 
         .pattern-notes-text.font-serif {
@@ -446,10 +445,9 @@
         }
 
         .pattern-preview {
-            font-family: 'Bravura', 'Times New Roman', serif;
             font-size: 1.2rem;
             color: var(--note-color);
-            min-width: 60px;
+            min-width: 40px;
             display: inline-block;
         }
 
@@ -787,15 +785,6 @@
         /* Mobile adjustments */
         @media (max-width: 768px) {
             .pianoroll-note.quarter { width: 100px; }
-        }
-
-        /* bravura-latin-400-normal */
-        @font-face {
-            font-family: 'Bravura';
-            font-style: normal;
-            font-display: swap;
-            font-weight: 400;
-            src: url(https://cdn.jsdelivr.net/fontsource/fonts/bravura@latest/latin-400-normal.woff2) format('woff2'), url(https://cdn.jsdelivr.net/fontsource/fonts/bravura@latest/latin-400-normal.woff) format('woff');
         }
     </style>
 </head>
@@ -1877,7 +1866,7 @@
             } else {
                 if (note.type === 'quarter') return '♩';
                 if (note.type === 'eighth') return '♪';
-                if (note.type === 'sixteenth') return '𝅘𝅥𝅯';
+                if (note.type === 'sixteenth') return '𝅘𝅥𝅯';
                 if (note.type === 'dotted-eighth') return '♪.';
             }
             return '?';
