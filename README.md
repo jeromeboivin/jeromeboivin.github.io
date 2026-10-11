@@ -8,18 +8,22 @@ Welcome to my portfolio! Here you'll find interactive tools and projects I've cr
 
 An interactive web-based tool designed to help you master rhythm patterns and improve your rhythmic precision.
 
-### Features
-- **Visual Pattern Display**: See rhythm patterns with clear musical notation
-- **Interactive Playback**: Listen to patterns with adjustable tempos
-- **Multiple Difficulty Levels**: Start simple and progress to complex patterns
-- **Light & Dark Themes**: Comfortable viewing in any environment
-- **Real-time Feedback**: Instant guidance as you practice
-- **Responsive Design**: Works seamlessly on desktop and mobile devices
-
 ### Try It Out
 👉 **[Launch Rhythm Pattern Trainer](./RhythmPatternTrainer/index.html)**
 
 ### Repository
 📦 **[View Source Code](https://github.com/jeromeboivin/RhythmPatternTrainer)**
+
+---
+
+## 🎹 Simple Looper
+
+A lightweight, interactive music looper for experimenting with musical ideas and creating loops directly in your browser.
+
+### Try It Out
+👉 **[Launch Simple Looper](./simple-looper/)**
+
+### Repository
+📦 **[View Source Code](https://github.com/jeromeboivin/simple-looper)**
 
 ---
