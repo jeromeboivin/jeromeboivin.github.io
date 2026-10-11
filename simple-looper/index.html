@@ -142,14 +142,14 @@
   </div>
 
   <p class="hint">
-    Click an empty pad to load a WAV. Drop WAVs on a pad to load from there, or on the unit to fill the bank.<br>
+    Click an empty pad to load a WAV or MP3. Drop audio files on a pad to load from there, or on the unit to fill the bank.<br>
     <b>GATE</b> plays while the pad is held. <b>LOOP</b> starts on tap and stops on the next tap.<br>
     REC while PLAYING records pad hits into the pattern, quantized to the 16th-note grid.<br>
     Keys: <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd> / <kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd><kbd>R</kbd> / <kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd> pads, <kbd>Space</kbd> play/stop.
   </p>
 </div>
 
-<input id="file" class="file-picker" type="file" accept=".wav,audio/wav" multiple>
+<input id="file" class="file-picker" type="file" accept=".wav,.mp3,audio/wav,audio/mpeg,audio/mp3" multiple>
 
 <script>
   const BANK_LETTERS = 'ABCDEFGHIJ';
@@ -264,14 +264,16 @@
     }
   }
 
-  // ---- Loading WAVs ----
-  const isWav = f => /\.wav$/i.test(f.name) || f.type === 'audio/wav' || f.type === 'audio/x-wav';
+  // ---- Loading WAV and MP3 files ----
+  const isSupportedAudio = f =>
+    /\.(wav|mp3)$/i.test(f.name) ||
+    ['audio/wav', 'audio/x-wav', 'audio/mpeg', 'audio/mp3'].includes(f.type);
 
   async function loadFiles(files, bank, start) {
     ensureCtx();
     let i = start;
     for (const f of files) {
-      if (!isWav(f)) continue;
+      if (!isSupportedAudio(f)) continue;
       if (i >= PADS_PER_BANK) break;
       const k = bank * PADS_PER_BANK + i;
       try {
@@ -279,7 +281,7 @@
         const p = pads[k];
         if (p.voice) kill(p.voice, ctx.currentTime);
         p.buffer = buffer;
-        p.name = f.name.replace(/\.wav$/i, '');
+        p.name = f.name.replace(/\.(wav|mp3)$/i, '');
         if (bank === sel) buildGrid();
       } catch (e) {
         console.error('Could not decode', f.name, e);
