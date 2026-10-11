@@ -55,7 +55,6 @@
     transform: translateY(3px); box-shadow: 0 0 18px var(--orange), 0 1px 0 #7a4308;
     background: radial-gradient(circle at 50% 30%, #ffc27a, var(--orange));
   }
-  .pads.mode-on .pad.loaded { outline: 2px dashed var(--orange); outline-offset: 3px; }
   .pad .num { position: absolute; top: 6px; left: 8px; font-size: 11px; opacity: .6; }
   .pad .name {
     position: absolute; left: 8px; right: 8px; bottom: 22px;
@@ -66,6 +65,7 @@
     letter-spacing: .05em; padding: 1px 4px; border-radius: 3px; background: #333; color: #eee;
   }
   .pad.loop .badge { background: #2f6fd1; }
+  .pad.gate .badge { background: #d18a2f; }
 
   .transport { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
   .transport button, .hint button {
@@ -131,7 +131,9 @@
   </section>
 
   <div class="transport">
-    <button id="modeBtn" title="While on, tapping a pad toggles GATE / LOOP">MODE</button>
+    <button id="gateBtn" title="Toggle GATE for the selected pad">GATE</button>
+    <button id="loopBtn" title="Toggle LOOP for the selected pad">LOOP</button>
+    <button id="delBtn" title="Clear/delete the selected pad">DEL</button>
     <button id="patBtn" title="Show the 16-step pattern grid">PATTERN</button>
     <label>BPM <input id="bpm" type="range" min="60" max="200" value="120"></label>
     <button id="play">&#9654; PLAY</button>
@@ -143,7 +145,7 @@
 
   <p class="hint">
     Click an empty pad to load a WAV or MP3. Drop audio files on a pad to load from there, or on the unit to fill the bank.<br>
-    <b>GATE</b> plays while the pad is held. <b>LOOP</b> starts on tap and stops on the next tap.<br>
+    Select a pad and click <b>GATE</b> or <b>LOOP</b> to toggle playback mode (defaults to full length), or <b>DEL</b> to clear the pad.<br>
     REC while PLAYING records pad hits into the pattern, quantized to the 16th-note grid.<br>
     Keys: <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd> / <kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd><kbd>R</kbd> / <kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd> pads, <kbd>Space</kbd> play/stop.
   </p>
@@ -159,17 +161,17 @@
 
   const $ = id => document.getElementById(id);
 
-  // 10 banks x 12 pads. Pad key = bank * 12 + index.
+  // 10 banks x 12 pads. Pad key = bank * 12 + index.[cite: 1]
   const pads = Array.from({ length: BANK_LETTERS.length * PADS_PER_BANK },
-    () => ({ buffer: null, name: '', mode: 'GATE', voice: null }));
+    () => ({ buffer: null, name: '', mode: null, voice: null }));
   const pattern = Array.from({ length: STEPS }, () => new Set());
-  const held = new Map();   // pad key -> gate voice currently held by a finger or key
-  const recent = [];        // last scheduled steps, used to quantize recording
-  const uiQueue = [];       // scheduled steps waiting to be shown on the LCD / grid
+  const held = new Map();   // pad key -> gate voice currently held by a finger or key[cite: 1]
+  const recent = [];        // last scheduled steps, used to quantize recording[cite: 1]
+  const uiQueue = [];       // scheduled steps waiting to be shown on the LCD / grid[cite: 1]
 
   let ctx = null, master = null;
-  let sel = 0, lastPad = -1, picker = null;
-  let view = 'pads', modeOn = false, recOn = false, playing = false;
+  let sel = 0, lastPad = 0, picker = null;
+  let view = 'pads', recOn = false, playing = false;
   let bpm = 120, timer = null, nextTime = 0, nextStep = 0, curStep = -1, drawnStep = -2;
   let cellsByStep = [];
   const padEls = [];
@@ -187,7 +189,7 @@
 
   const stepDur = () => 60 / bpm / 4;
 
-  // Voices: one BufferSource per trigger, with its own gain for click-free stops.
+  // Voices: one BufferSource per trigger, with its own gain for click-free stops.[cite: 1]
   function startVoice(k, when, stopAt) {
     const p = pads[k];
     if (!p.buffer) return null;
@@ -228,16 +230,12 @@
     }
   }
 
-  // ---- Pads (live play) ----
+  // ---- Pads (live play) ----[cite: 1]
   function padDown(i) {
     ensureCtx();
     lastPad = i;
     const k = sel * PADS_PER_BANK + i, p = pads[k];
 
-    if (modeOn) {
-      if (p.buffer) p.mode = p.mode === 'GATE' ? 'LOOP' : 'GATE';
-      return;
-    }
     if (!p.buffer) {
       picker = { bank: sel, start: i };
       $('file').click();
@@ -248,9 +246,12 @@
     if (p.mode === 'LOOP') {
       if (p.voice) kill(p.voice, now);
       else startVoice(k, now);
-    } else {
+    } else if (p.mode === 'GATE') {
       const v = startVoice(k, now);
       if (v) held.set(k, v);
+    } else {
+      // Full length / normal play
+      startVoice(k, now);
     }
     if (recOn && playing) record(k);
   }
@@ -264,7 +265,7 @@
     }
   }
 
-  // ---- Loading WAV and MP3 files ----
+  // ---- Loading WAV and MP3 files ----[cite: 1]
   const isSupportedAudio = f =>
     /\.(wav|mp3)$/i.test(f.name) ||
     ['audio/wav', 'audio/x-wav', 'audio/mpeg', 'audio/mp3'].includes(f.type);
@@ -282,6 +283,7 @@
         if (p.voice) kill(p.voice, ctx.currentTime);
         p.buffer = buffer;
         p.name = f.name.replace(/\.(wav|mp3)$/i, '');
+        p.mode = null; // Default when loaded: not gated nor looped
         if (bank === sel) buildGrid();
       } catch (e) {
         console.error('Could not decode', f.name, e);
@@ -295,7 +297,7 @@
     return 0;
   }
 
-  // ---- Pattern (16 steps, Roland-style) ----
+  // ---- Pattern (16 steps, Roland-style) ----[cite: 1]
   function scheduleStep(s, t) {
     for (const k of pattern[s]) {
       const p = pads[k];
@@ -303,9 +305,10 @@
       if (p.mode === 'LOOP') {
         if (p.voice) kill(p.voice, t);
         else startVoice(k, t);
-      } else {
-        // GATE in a pattern: the hit lasts one step
+      } else if (p.mode === 'GATE') {
         startVoice(k, t, t + stepDur());
+      } else {
+        startVoice(k, t);
       }
     }
   }
@@ -347,14 +350,14 @@
     }
   }
 
-  // ---- UI building ----
+  // ---- UI building ----[cite: 1]
   function buildBanks() {
     const box = $('banks');
     BANK_LETTERS.split('').forEach((letter, b) => {
       const el = document.createElement('button');
       el.className = 'bank';
       el.textContent = letter;
-      el.onclick = () => { sel = b; lastPad = -1; buildGrid(); };
+      el.onclick = () => { sel = b; lastPad = 0; buildGrid(); };
       box.append(el);
       bankEls.push(el);
     });
@@ -369,7 +372,6 @@
       el.querySelector('.num').textContent = i + 1;
       el.addEventListener('pointerdown', e => {
         const k = sel * PADS_PER_BANK + i;
-        // iOS Safari is more reliable when the file picker is opened from click.
         if (!pads[k].buffer) return;
         e.preventDefault();
         padDown(i);
@@ -429,27 +431,57 @@
     c.classList.toggle('on', pattern[s].has(k));
   };
 
-  // ---- Transport & controls ----
+  // ---- Transport & controls ----[cite: 1]
   $('play').onclick = startPlay;
   $('stop').onclick = stopAll;
   $('rec').onclick = () => { recOn = !recOn; };
-  $('modeBtn').onclick = () => { modeOn = !modeOn; };
-  $('patBtn').onclick = () => { view = view === 'pads' ? 'pattern' : 'pads'; };
-  $('bpm').oninput = e => { bpm = Number(e.target.value); };
-  $('vol').oninput = e => { if (master) master.gain.value = Number(e.target.value); };
-  $('clear').onclick = () => {
+
+  $('gateBtn').onclick = () => {
+    if (lastPad < 0) lastPad = 0;
+    const k = sel * PADS_PER_BANK + lastPad;
+    const p = pads[k];
+    if (p.buffer) {
+      p.mode = p.mode === 'GATE' ? null : 'GATE';
+    }
+  };
+
+  $('loopBtn').onclick = () => {
+    if (lastPad < 0) lastPad = 0;
+    const k = sel * PADS_PER_BANK + lastPad;
+    const p = pads[k];
+    if (p.buffer) {
+      p.mode = p.mode === 'LOOP' ? null : 'LOOP';
+    }
+  };
+
+  $('delBtn').onclick = () => {
+    if (lastPad < 0) lastPad = 0;
+    const k = sel * PADS_PER_BANK + lastPad;
+    const p = pads[k];
+    if (p.voice) kill(p.voice, ctx.currentTime);
+    p.buffer = null;
+    p.name = '';
+    p.mode = null;
+    p.voice = null;
+    for (let s = 0; s < STEPS; s++) {
+      pattern[s].delete(k);
+    }
+    buildGrid();
+  };
+
+  $('patBtn').onclick = () => { view = view === 'pads' ? 'pattern' : 'pads'; };$('bpm').oninput = e => { bpm = Number(e.target.value); };
+  $('vol').oninput = e => { if (master) master.gain.value = Number(e.target.value); };$('clear').onclick = () => {
     for (let s = 0; s < STEPS; s++)
       for (let i = 0; i < PADS_PER_BANK; i++) pattern[s].delete(sel * PADS_PER_BANK + i);
     buildGrid();
   };
 
   $('file').onchange = () => {
-    const files = [...$('file').files];
-    $('file').value = '';
+    const files = [...$('file').files];$('file').value = '';
     if (picker) loadFiles(files, picker.bank, picker.start);
   };
 
-  // Drop onto a pad: load from that pad. Drop elsewhere: fill the bank from its first empty pad.
+  // Drop onto a pad: load from that pad. Drop elsewhere: fill the bank from its first empty pad.[cite: 1]
   document.addEventListener('dragover', e => e.preventDefault());
   document.addEventListener('drop', e => {
     e.preventDefault();
@@ -473,7 +505,7 @@
     if (i >= 0) padUp(i);
   });
 
-  // ---- Render loop ----
+  // ---- Render loop ----[cite: 1]
   function frame() {
     if (ctx) {
       const now = ctx.currentTime;
@@ -490,23 +522,23 @@
       el.classList.toggle('loaded', !!p.buffer);
       el.classList.toggle('lit', !!p.voice);
       el.classList.toggle('loop', p.mode === 'LOOP');
+      el.classList.toggle('gate', p.mode === 'GATE');
       el.querySelector('.name').textContent = p.name;
-      el.querySelector('.badge').textContent = p.buffer ? p.mode : '';
+      el.querySelector('.badge').textContent = p.buffer && p.mode ? p.mode : '';
     });
-    $('pads').classList.toggle('mode-on', modeOn);
+
+    const activePad = lastPad >= 0 ? pads[sel * PADS_PER_BANK + lastPad] : null;
+    $('gateBtn').classList.toggle('active', activePad && activePad.mode === 'GATE');$('loopBtn').classList.toggle('active', activePad && activePad.mode === 'LOOP');
 
     bankEls.forEach((el, b) => el.classList.toggle('active', b === sel));
-    $('modeBtn').classList.toggle('active', modeOn);
-    $('patBtn').classList.toggle('active', view === 'pattern');
-    $('patternView').hidden = view !== 'pattern';
-    $('play').classList.toggle('active', playing);
-    $('rec').classList.toggle('active', recOn);
+    $('patBtn').classList.toggle('active', view === 'pattern');$('patternView').hidden = view !== 'pattern';
+    $('play').classList.toggle('active', playing);$('rec').classList.toggle('active', recOn);
 
-    const sp = lastPad >= 0 ? pads[sel * PADS_PER_BANK + lastPad] : null;
+    const sp = activePad;
     $('lcd1').textContent = `BANK ${BANK_LETTERS[sel]}  PAD ${lastPad >= 0 ? lastPad + 1 : '--'}  ` +
-      (sp && sp.buffer ? `${sp.name} [${sp.mode}]` : 'EMPTY');
+      (sp && sp.buffer ? `${sp.name} [${sp.mode || 'FULL'}]` : 'EMPTY');
     $('lcd2').textContent = `${view === 'pads' ? 'PAD' : 'PATTERN'}  ${bpm} BPM  ${playing ? 'PLAY' : 'STOP'}` +
-      (recOn ? '  REC' : '') + (modeOn ? '  MODE' : '') +
+      (recOn ? '  REC' : '') +
       (playing && curStep >= 0 ? `  STEP ${String(curStep + 1).padStart(2, '0')}` : '');
 
     requestAnimationFrame(frame);
