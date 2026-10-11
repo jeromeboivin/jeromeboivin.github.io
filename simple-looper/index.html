@@ -94,6 +94,18 @@
   .hint { font-size: 12px; color: #888; margin: 14px 0 0; line-height: 1.5; }
   .hint kbd { background: #222; padding: 0 4px; border-radius: 3px; border: 1px solid #000; color: #aaa; }
 
+  /* Keep the file input available to iOS Safari's native picker while visually hidden. */
+  .file-picker {
+    position: fixed;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+    left: -10px;
+    top: 0;
+  }
+
   @media (max-width: 480px) {
     .pad .name { font-size: 10px; }
     .transport button { padding: 6px 8px; }
@@ -137,7 +149,7 @@
   </p>
 </div>
 
-<input id="file" type="file" accept=".wav,audio/wav" multiple hidden>
+<input id="file" class="file-picker" type="file" accept=".wav,audio/wav" multiple>
 
 <script>
   const BANK_LETTERS = 'ABCDEFGHIJ';
@@ -353,7 +365,20 @@
       el.className = 'pad';
       el.innerHTML = '<span class="num"></span><span class="name"></span><span class="badge"></span>';
       el.querySelector('.num').textContent = i + 1;
-      el.addEventListener('pointerdown', e => { e.preventDefault(); padDown(i); });
+      el.addEventListener('pointerdown', e => {
+        const k = sel * PADS_PER_BANK + i;
+        // iOS Safari is more reliable when the file picker is opened from click.
+        if (!pads[k].buffer) return;
+        e.preventDefault();
+        padDown(i);
+      });
+      el.addEventListener('click', e => {
+        const k = sel * PADS_PER_BANK + i;
+        if (!pads[k].buffer) {
+          e.preventDefault();
+          padDown(i);
+        }
+      });
       el.addEventListener('pointerup', () => padUp(i));
       el.addEventListener('pointercancel', () => padUp(i));
       el.addEventListener('pointerleave', () => padUp(i));
