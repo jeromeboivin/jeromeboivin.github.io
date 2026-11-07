@@ -97,6 +97,10 @@
     background: radial-gradient(circle at 50% 30%, #ffc27a, var(--orange));
     animation: pad-blink .55s ease-in-out infinite alternate;
   }
+  .pad.next-preview {
+    transform: translateY(3px); box-shadow: 0 0 14px var(--orange), 0 1px 0 #7a4308;
+    background: radial-gradient(circle at 50% 30%, #ffc27a, var(--orange));
+  }
   .pad.selected { outline: 2px solid #fff; outline-offset: 3px; }
   @keyframes pad-blink {
     from { filter: brightness(1); }
@@ -1423,11 +1427,29 @@
       drawnStep = curStep;
     }
 
+    let nextPreviewPad = -1;
+    let nextPreviewOn = false;
+    if (ctx && songState.playing && songState.voices.length > 1) {
+      const now = ctx.currentTime;
+      const currentVoiceIndex = songState.voices.findIndex(v => now >= v.start && now < v.end);
+      if (currentVoiceIndex >= 0 && currentVoiceIndex < songState.voices.length - 1) {
+        const currentVoice = songState.voices[currentVoiceIndex];
+        const quarterDuration = 60 / (songState.loaded.bpm || bpm);
+        const lastBarStart = Math.max(currentVoice.start, currentVoice.end - quarterDuration * 4);
+        if (now >= lastBarStart) {
+          nextPreviewPad = songState.voices[currentVoiceIndex + 1].trackIndex;
+          nextPreviewOn = Math.floor((now - lastBarStart) / (quarterDuration / 2)) % 2 === 0;
+        }
+      }
+    }
+
     padEls.forEach((el, i) => {
       const p = pads[sel * PADS_PER_BANK + i];
+      const padIndex = sel * PADS_PER_BANK + i;
       el.classList.toggle('loaded', !!p.buffer);
       const songPadPlaying = songState.playing && songState.current === sel * PADS_PER_BANK + i;
       el.classList.toggle('lit', !!p.voice || songPadPlaying);
+      el.classList.toggle('next-preview', padIndex === nextPreviewPad && nextPreviewOn);
       el.classList.toggle('selected', i === lastPad);
       el.classList.toggle('loop', p.mode === 'LOOP');
       el.classList.toggle('gate', p.mode === 'GATE');
