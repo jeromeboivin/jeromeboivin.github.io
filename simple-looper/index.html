@@ -80,6 +80,20 @@
   #patternView {
     margin-top: 14px; background: #17181b; border-radius: 8px; padding: 10px; overflow-x: auto;
   }
+  #songView {
+    margin-top: 14px; background: #17181b; border-radius: 8px; padding: 10px;
+  }
+  .song-controls {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  }
+  .song-controls select {
+    flex: 1; min-width: 180px; background: #2a2b2f; color: #ddd;
+    border: 1px solid #111; border-radius: 5px; padding: 7px; font: inherit;
+  }
+  .song-status {
+    margin-top: 8px; color: var(--lcd-txt); font: 12px ui-monospace, Menlo, monospace;
+    min-height: 1.5em;
+  }
   #grid {
     display: grid; grid-template-columns: 90px repeat(16, minmax(22px, 1fr));
     gap: 3px; min-width: 520px; font-size: 11px;
@@ -130,6 +144,18 @@
     <div id="grid"></div>
   </section>
 
+  <section id="songView" hidden>
+    <div class="song-controls">
+      <select id="songSelect" aria-label="Song"></select>
+      <button id="loadSong">LOAD SONG</button>
+      <button id="songPrev" title="Previous song section">&#9664;</button>
+      <button id="songPlay">&#9654; PLAY SONG</button>
+      <button id="songNext" title="Next song section">&#9654;&#9654;</button>
+      <button id="songStop">&#9632; STOP SONG</button>
+    </div>
+    <div id="songStatus" class="song-status"></div>
+  </section>
+
   <div class="transport">
     <button id="gateBtn" title="Toggle GATE for the selected pad">GATE</button>
     <button id="loopBtn" title="Toggle LOOP for the selected pad">LOOP</button>
@@ -140,6 +166,7 @@
     <button id="stop">&#9632; STOP</button>
     <button id="rec">&#9679; REC</button>
     <button id="clear" title="Clear the pattern of the selected bank">CLEAR</button>
+    <button id="songBtn" title="Show the non-looping song player">SONG</button>
     <label>VOL <input id="vol" type="range" min="0" max="1" step="0.01" value="0.9"></label>
   </div>
 
@@ -147,6 +174,7 @@
     Click an empty pad to load a WAV or MP3. Drop audio files on a pad to load from there, or on the unit to fill the bank.<br>
     Select a pad and click <b>GATE</b> or <b>LOOP</b> to toggle playback mode (defaults to full length), or <b>DEL</b> to clear the pad.<br>
     REC while PLAYING records pad hits into the pattern, quantized to the 16th-note grid.<br>
+    SONG loads the configured public audio URLs and plays its sections once in order; edit the <b>SONGS</b> data in the source to add songs.<br>
     Keys: <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd> / <kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd><kbd>R</kbd> / <kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd> pads, <kbd>Space</kbd> play/stop.
   </p>
 </div>
@@ -158,6 +186,27 @@
   const PADS_PER_BANK = 12;
   const STEPS = 16;
   const KEYS = ['1', '2', '3', '4', 'q', 'w', 'e', 'r', 'a', 's', 'd', 'f'];
+  // Add songs here. Audio URLs must be direct, publicly readable files with CORS enabled.
+  const SONGS = [
+    {
+      id: 'lovely-day',
+      title: 'Lovely Day',
+      bpm: 102.23,
+      tracks: [
+        { label: 'Intro 1', url: 'https://www.dropbox.com/scl/fi/ydmymit1zmslbp8fvth5l/01-Intro-1.mp3?rlkey=evqf6gc52tdyd5c4cappla990&dl=1' },
+        { label: 'Intro 2', url: 'https://www.dropbox.com/scl/fi/3x3ewnlr3vcx193pj1575/02-Intro-2.mp3?rlkey=xdrixv5jexs5j3hoo8tk0l4a9&dl=1' },
+        { label: 'Verse 1', url: 'https://www.dropbox.com/scl/fi/3kp32g64gn0z2hr7pbd2i/03-Verse-1.mp3?rlkey=k4zdukcjuz6l7d7fc659vrygt&dl=1' },
+        { label: 'Bridge 1', url: 'https://www.dropbox.com/scl/fi/c9wn66ztf5vfpkkmlumij/04-Bridge-1.mp3?rlkey=u3eue5m76sb31u0cmxconb9rw&dl=1' },
+        { label: 'Chorus 1', url: 'https://www.dropbox.com/scl/fi/827na2i7lrfomijyihsgf/05-Chorus-1.mp3?rlkey=x30dh202y25pxv2mwcojgnkc2&dl=1' },
+        { label: 'Verse 2', url: 'https://www.dropbox.com/scl/fi/evgakqxcmi9yeu3byemvg/06-Verse-2.mp3?rlkey=f98y59i7gt58jhhwbmoxm2b3x&dl=1' },
+        { label: 'Bridge 2', url: 'https://www.dropbox.com/scl/fi/ncgqjvdo8ygh9klympcjk/07-Bridge-2.mp3?rlkey=anq0mbmtok4zs6pn6ntba1k9x&dl=1' },
+        { label: 'Chorus 2', url: 'https://www.dropbox.com/scl/fi/3dlv2njunskbe42jt42dq/08-Chorus-2.mp3?rlkey=dos6kvzns31uxn5oy0c6tejil&dl=1' },
+        { label: 'Solos', url: 'https://www.dropbox.com/scl/fi/dinkopf5uehcpkb69cent/09-Solos.mp3?rlkey=j4j9s3nc3c04kim2tgtvoui2g&dl=1' },
+        { label: 'Chorus 3', url: 'https://www.dropbox.com/scl/fi/bad8bmf869og2z11171gk/10-Chorus-3.mp3?rlkey=5v1otb4j2dkggma67bv3wp3as&dl=1' },
+        { label: 'Verse 2', url: 'https://www.dropbox.com/scl/fi/8o47v4oid8x0kta8lepkb/11-Verse-2.mp3?rlkey=yd3eyt7eqljuu093zl23ur71e&dl=1' }
+      ]
+    }
+  ];
 
   const $ = id => document.getElementById(id);
 
@@ -176,6 +225,16 @@
   let cellsByStep = [];
   const padEls = [];
   const bankEls = [];
+  const songState = {
+    selected: 0,
+    loaded: null,
+    playing: false,
+    voices: [],
+    startTime: 0,
+    endTime: 0,
+    current: -1,
+    error: ''
+  };
 
   function ensureCtx() {
     if (!ctx) {
@@ -218,6 +277,22 @@
     if (pads[v.k].voice === v) pads[v.k].voice = null;
   }
 
+  function stopSong() {
+    if (ctx) {
+      const now = ctx.currentTime;
+      songState.voices.forEach(v => {
+        try {
+          v.gain.gain.setValueAtTime(v.gain.gain.value, now);
+          v.gain.gain.linearRampToValueAtTime(0, now + 0.01);
+          v.source.stop(now + 0.02);
+        } catch (e) { /* already stopped */ }
+      });
+    }
+    songState.voices = [];
+    songState.playing = false;
+    songState.current = -1;
+  }
+
   function stopAll() {
     playing = false;
     clearInterval(timer);
@@ -228,6 +303,7 @@
       const now = ctx.currentTime;
       pads.forEach(p => { if (p.voice) kill(p.voice, now); });
     }
+    stopSong();
   }
 
   // ---- Pads (live play) ----[cite: 1]
@@ -288,8 +364,95 @@
       } catch (e) {
         console.error('Could not decode', f.name, e);
       }
+
       i++;
     }
+  }
+
+  function selectedSong() {
+    return SONGS[songState.selected];
+  }
+
+  function setSongStatus(message) {
+    songState.error = message;
+  }
+
+  async function loadSong() {
+    const song = selectedSong();
+    stopSong();
+    setSongStatus(`Loading ${song.title}...`);
+    ensureCtx();
+
+    try {
+      const buffers = [];
+      for (let i = 0; i < song.tracks.length; i++) {
+        const track = song.tracks[i];
+        if (!track.url) throw new Error(`Missing URL for ${track.label}`);
+        const response = await fetch(track.url);
+        if (!response.ok) throw new Error(`${track.label}: HTTP ${response.status}`);
+        buffers.push(await ctx.decodeAudioData(await response.arrayBuffer()));
+      }
+      buffers.forEach((buffer, i) => {
+        const p = pads[i];
+        if (p.voice) kill(p.voice, ctx.currentTime);
+        p.buffer = buffer;
+        p.name = song.tracks[i].label;
+        p.mode = null;
+      });
+      songState.loaded = song;
+      songState.current = -1;
+      setSongStatus(`${song.title} loaded — ${song.tracks.length} sections`);
+      buildGrid();
+    } catch (e) {
+      songState.loaded = null;
+      setSongStatus(`Could not load song: ${e.message}`);
+      console.error('Could not load song', e);
+    }
+  }
+
+  function startSong(fromIndex = 0) {
+    ensureCtx();
+    const song = songState.loaded;
+    if (!song) {
+      setSongStatus('Load a song first');
+      return;
+    }
+    stopSong();
+    const start = ctx.currentTime + 0.05;
+    let offset = 0;
+    songState.startTime = start;
+    songState.current = fromIndex;
+    songState.voices = song.tracks.slice(fromIndex).map((track, relativeIndex) => {
+      const i = fromIndex + relativeIndex;
+      const p = pads[i];
+      const source = ctx.createBufferSource();
+      const gain = ctx.createGain();
+      source.buffer = p.buffer;
+      source.connect(gain);
+      gain.connect(master);
+      gain.gain.setValueAtTime(1, start + offset);
+      source.start(start + offset);
+      const voice = {
+        source,
+        gain,
+        trackIndex: i,
+        start: start + offset,
+        end: start + offset + p.buffer.duration
+      };
+      offset += p.buffer.duration;
+      return voice;
+    });
+    songState.endTime = start + offset;
+    songState.playing = true;
+    setSongStatus(`${song.title} playing`);
+  }
+
+  function seekSongSection(delta) {
+    if (!songState.loaded) return;
+    const count = songState.loaded.tracks.length;
+    const current = songState.current < 0 ? 0 : songState.current;
+    const target = Math.max(0, Math.min(count - 1, current + delta));
+    startSong(target);
   }
 
   function firstEmpty(bank) {
@@ -469,12 +632,25 @@
     buildGrid();
   };
 
-  $('patBtn').onclick = () => { view = view === 'pads' ? 'pattern' : 'pads'; };$('bpm').oninput = e => { bpm = Number(e.target.value); };
+  $('patBtn').onclick = () => { view = view === 'pattern' ? 'pads' : 'pattern'; };
+  $('songBtn').onclick = () => { view = view === 'song' ? 'pads' : 'song'; };
+  $('bpm').oninput = e => { bpm = Number(e.target.value); };
   $('vol').oninput = e => { if (master) master.gain.value = Number(e.target.value); };$('clear').onclick = () => {
     for (let s = 0; s < STEPS; s++)
       for (let i = 0; i < PADS_PER_BANK; i++) pattern[s].delete(sel * PADS_PER_BANK + i);
     buildGrid();
   };
+
+  $('songSelect').onchange = e => {
+    songState.selected = Number(e.target.value);
+    songState.loaded = null;
+    setSongStatus('');
+  };
+  $('loadSong').onclick = loadSong;
+  $('songPlay').onclick = startSong;
+  $('songStop').onclick = stopSong;
+  $('songPrev').onclick = () => seekSongSection(-1);
+  $('songNext').onclick = () => seekSongSection(1);
 
   $('file').onchange = () => {
     const files = [...$('file').files];$('file').value = '';
@@ -510,6 +686,11 @@
     if (ctx) {
       const now = ctx.currentTime;
       while (uiQueue.length && uiQueue[0].time <= now) curStep = uiQueue.shift().step;
+      if (songState.playing) {
+        const index = songState.voices.findIndex(v => now >= v.start && now < v.end);
+        if (index >= 0) songState.current = songState.voices[index].trackIndex;
+        if (now >= songState.endTime) stopSong();
+      }
     }
     if (curStep !== drawnStep) {
       if (drawnStep >= 0) cellsByStep[drawnStep].forEach(c => c.classList.remove('cur'));
@@ -531,15 +712,23 @@
     $('gateBtn').classList.toggle('active', activePad && activePad.mode === 'GATE');$('loopBtn').classList.toggle('active', activePad && activePad.mode === 'LOOP');
 
     bankEls.forEach((el, b) => el.classList.toggle('active', b === sel));
-    $('patBtn').classList.toggle('active', view === 'pattern');$('patternView').hidden = view !== 'pattern';
+    $('patBtn').classList.toggle('active', view === 'pattern');
+    $('songBtn').classList.toggle('active', view === 'song');
+    $('patternView').hidden = view !== 'pattern';
+    $('songView').hidden = view !== 'song';
     $('play').classList.toggle('active', playing);$('rec').classList.toggle('active', recOn);
 
     const sp = activePad;
     $('lcd1').textContent = `BANK ${BANK_LETTERS[sel]}  PAD ${lastPad >= 0 ? lastPad + 1 : '--'}  ` +
       (sp && sp.buffer ? `${sp.name} [${sp.mode || 'FULL'}]` : 'EMPTY');
-    $('lcd2').textContent = `${view === 'pads' ? 'PAD' : 'PATTERN'}  ${bpm} BPM  ${playing ? 'PLAY' : 'STOP'}` +
+    const viewName = view === 'pads' ? 'PAD' : view === 'pattern' ? 'PATTERN' : 'SONG';
+    $('lcd2').textContent = `${viewName}  ${bpm} BPM  ${playing ? 'PLAY' : 'STOP'}` +
       (recOn ? '  REC' : '') +
       (playing && curStep >= 0 ? `  STEP ${String(curStep + 1).padStart(2, '0')}` : '');
+    $('songStatus').textContent = songState.playing && songState.current >= 0
+      ? `${songState.loaded.title}  ${songState.current + 1}/${songState.loaded.tracks.length} — ${songState.loaded.tracks[songState.current].label}`
+      : songState.error || (songState.loaded ? `${songState.loaded.title} loaded` : 'No song loaded');
+    $('songPlay').classList.toggle('active', songState.playing);
 
     requestAnimationFrame(frame);
   }
@@ -547,6 +736,12 @@
   buildBanks();
   buildPads();
   buildGrid();
+  SONGS.forEach((song, i) => {
+    const option = document.createElement('option');
+    option.value = i;
+    option.textContent = song.title;
+    $('songSelect').append(option);
+  });
   requestAnimationFrame(frame);
 </script>
 </body>
