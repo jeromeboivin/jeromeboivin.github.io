@@ -254,6 +254,22 @@
     top: 0;
   }
 
+  @media (max-width: 520px) {
+    .sample-columns { grid-template-columns: minmax(0, 1fr); }
+    .sample-column { min-width: 0; }
+    .sample-column:nth-child(-n+2) { min-height: 0; max-height: none; overflow: hidden; }
+    #sampleKits, #sampleTypes {
+      display: flex; gap: 6px; overflow-x: auto; overscroll-behavior-x: contain;
+    }
+    #sampleKits button, #sampleTypes button {
+      flex: 0 0 auto; width: auto; min-height: 44px; white-space: nowrap;
+    }
+    .sample-list { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+    .sample-list button, .sample-manager-head button, .sample-manager-footer button {
+      min-height: 44px;
+    }
+  }
+
   @media (max-width: 480px) {
     .control-bank { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .pad .name { font-size: 10px; }
