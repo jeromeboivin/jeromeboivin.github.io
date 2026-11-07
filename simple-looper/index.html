@@ -44,7 +44,7 @@
   .lcd-waveform {
     display: block; width: 100%; height: 84px; margin-top: 4px;
     background: #0a2014; border: 1px solid #285332; border-radius: 2px;
-    cursor: crosshair;
+    cursor: crosshair; touch-action: none; user-select: none;
   }
   .pad-controls {
     display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -270,7 +270,7 @@
     <div class="lcd">
       <div id="lcd1"></div>
       <div id="lcd2"></div>
-      <canvas id="waveform" class="lcd-waveform" width="480" height="84" aria-label="Pad waveform"></canvas>
+      <canvas id="waveform" class="lcd-waveform" width="480" height="84" aria-label="Pad waveform" title="Left-click to set start, right-click to set end, or drag to select a range"></canvas>
     </div>
     <div class="control-bank">
       <div class="pad-controls" aria-label="Active pad controls">
@@ -393,6 +393,7 @@
     Click an empty pad to load a WAV or MP3. Drop audio files on a pad to load from there, or on the unit to fill the bank.<br>
     Left-click a pad to play it; right-click a pad to select it without playing.<br>
     Select a pad and click <b>GATE</b> or <b>LOOP</b> to toggle playback mode (defaults to full length), or <b>DEL</b> to clear the pad.<br>
+    On the waveform, left-click to set the start, right-click to set the end, or drag to select a range.<br>
     REC while PLAYING records pad hits into the pattern, quantized to the 16th-note grid.<br>
     SONG loads the configured audio URLs and plays its sections once in order; main PLAY starts from the selected section, or the first section if none is selected. Add predefined song manifests to the <b>SONGS</b> catalog in the source.<br>
     Keys: <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd> / <kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd><kbd>R</kbd> / <kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd> pads, <kbd>Space</kbd> play/stop.
@@ -1487,11 +1488,12 @@
     c.fillRect(0, 0, width, height);
     if (!p || !p.buffer) return;
     const data = p.buffer.getChannelData(0);
-    const zoom = waveformZoom();
-    const span = Math.min(1, 1 / zoom);
-    const viewCenter = 0.5 + waveformView.waveMove * 0.5;
-    const viewStart = Math.max(0, Math.min(1 - span, viewCenter - span / 2));
+    const { viewStart, span } = waveformWindow();
     const viewEnd = viewStart + span;
+    const selectionStart = Math.max(0, Math.min(width, (p.start - viewStart) / span * width));
+    const selectionEnd = Math.max(0, Math.min(width, (p.end - viewStart) / span * width));
+    c.fillStyle = '#1c4630';
+    c.fillRect(selectionStart, 0, selectionEnd - selectionStart, height);
     const fromSample = Math.floor(viewStart * data.length);
     const toSample = Math.max(fromSample + 1, Math.ceil(viewEnd * data.length));
     const sampleSpan = toSample - fromSample;
@@ -1552,6 +1554,12 @@
 
   function waveformZoom() {
     return 1 + waveformView.zoom * 15;
+  }
+
+  function waveformWindow() {
+    const span = Math.min(1, 1 / waveformZoom());
+    const center = 0.5 + waveformView.waveMove * 0.5;
+    return { viewStart: Math.max(0, Math.min(1 - span, center - span / 2)), span };
   }
 
   function setPadControl(name, value) {
@@ -1620,19 +1628,70 @@
       input.dispatchEvent(new Event('input', { bubbles: true }));
     };
   });
-  $('waveform').onclick = e => {
+  function waveformPosition(e) {
+    const { viewStart, span } = waveformWindow();
+    const canvas = $('waveform');
+    const rect = canvas.getBoundingClientRect();
+    const scale = rect.width / canvas.offsetWidth;
+    const left = rect.left + canvas.clientLeft * scale;
+    const ratio = Math.max(0, Math.min(1, (e.clientX - left) / (canvas.clientWidth * scale)));
+    return viewStart + ratio * span;
+  }
+
+  function setWaveformBoundary(p, name, position) {
+    if (name === 'start') {
+      p.start = Math.min(position, 0.999);
+      p.end = Math.max(p.end, p.start + 0.001);
+    } else {
+      p.end = Math.max(position, 0.001);
+      p.start = Math.min(p.start, p.end - 0.001);
+    }
+    renderPadControls(p);
+    drawWaveform(p);
+  }
+
+  function setWaveformRange(p, first, last) {
+    p.start = Math.min(Math.min(first, last), 0.999);
+    p.end = Math.max(Math.max(first, last), p.start + 0.001);
+    renderPadControls(p);
+    drawWaveform(p);
+  }
+
+  let waveformDrag = null;
+  const waveform = $('waveform');
+  waveform.onpointerdown = e => {
     const p = pads[sel * PADS_PER_BANK + lastPad];
-    if (!p || !p.buffer) return;
-    const zoom = waveformZoom();
-    const span = Math.min(1, 1 / zoom);
-    const viewCenter = 0.5 + waveformView.waveMove * 0.5;
-    const viewStart = Math.max(0, Math.min(1 - span, viewCenter - span / 2));
-    const ratio = Math.max(0, Math.min(1,
-      (e.clientX - e.currentTarget.getBoundingClientRect().left) /
-      e.currentTarget.getBoundingClientRect().width));
-    const position = viewStart + ratio * span;
-    if (Math.abs(position - p.start) <= Math.abs(position - p.end)) setPadControl('start', position);
-    else setPadControl('end', position);
+    if (!p || !p.buffer || (e.button !== 0 && e.button !== 2)) return;
+    e.preventDefault();
+    const position = waveformPosition(e);
+    if (e.button === 2) {
+      setWaveformBoundary(p, 'end', position);
+      return;
+    }
+    waveformDrag = { pointerId: e.pointerId, pad: p, buffer: p.buffer, anchor: position, clientX: e.clientX };
+    waveform.setPointerCapture(e.pointerId);
+    setWaveformBoundary(p, 'start', position);
+  };
+  waveform.onpointermove = e => {
+    if (!waveformDrag || waveformDrag.pointerId !== e.pointerId ||
+        pads[sel * PADS_PER_BANK + lastPad] !== waveformDrag.pad ||
+        waveformDrag.pad.buffer !== waveformDrag.buffer) return;
+    if (Math.abs(e.clientX - waveformDrag.clientX) >= 3 || waveformDrag.selecting) {
+      waveformDrag.selecting = true;
+      setWaveformRange(waveformDrag.pad, waveformDrag.anchor, waveformPosition(e));
+    }
+  };
+  waveform.onpointerup = e => {
+    if (!waveformDrag || waveformDrag.pointerId !== e.pointerId) return;
+    waveform.onpointermove(e);
+    waveformDrag = null;
+  };
+  waveform.onpointercancel = waveform.onlostpointercapture = e => {
+    if (waveformDrag && waveformDrag.pointerId === e.pointerId) waveformDrag = null;
+  };
+  waveform.oncontextmenu = e => {
+    const p = pads[sel * PADS_PER_BANK + lastPad];
+    if (p && p.buffer) e.preventDefault();
   };
 
   function frame() {
