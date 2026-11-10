@@ -412,13 +412,14 @@
     Select a pad and click <b>GATE</b> or <b>LOOP</b> to toggle playback mode (defaults to full length), or <b>DEL</b> to clear the pad.<br>
     On the waveform, left-click to set the start, right-click to set the end, or drag to select a range.<br>
     REC while PLAYING records pad hits into the pattern, quantized to the 16th-note grid.<br>
-    SONG loads the configured audio URLs and plays its sections once in order; main PLAY starts from the selected section, or the first section if none is selected. Add predefined song manifests to the <b>SONGS</b> catalog in the source.<br>
+    SONG loads the configured audio URLs and plays its sections once in order; main PLAY starts from the selected section, or the first section if none is selected. In song mode, BPM changes playback speed without changing pitch. Add predefined song manifests to the <b>SONGS</b> catalog in the source.<br>
     Keys: <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd> / <kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd><kbd>R</kbd> / <kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd> pads, <kbd>Space</kbd> play/stop.
   </p>
 </div>
 
 <input id="file" class="file-picker" type="file" accept=".wav,.mp3,.m4a,.aac,audio/wav,audio/mpeg,audio/mp3,audio/mp4,audio/aac" multiple>
 
+<script src="vendor/signalsmith-stretch/SignalsmithStretch.js"></script>
 <script>
   const BANK_LETTERS = 'ABCDEFGHIJ';
   const PADS_PER_BANK = 12;
@@ -463,14 +464,18 @@
     selected: 0,
     loaded: null,
     playing: false,
+    preparing: false,
     voices: [],
+    player: null,
+    clock: [],
+    tempoChanges: Promise.resolve(),
     startTime: 0,
     endTime: 0,
     current: -1,
     currentSequence: -1,
     error: ''
   };
-  let songLoadRequest = 0;
+  let songLoadRequest = 0, songPlayRequest = 0;
 
   function ensureCtx() {
     if (!ctx) {
@@ -555,18 +560,22 @@
   }
 
   function stopSong() {
+    songPlayRequest++;
     if (ctx) {
       const now = ctx.currentTime;
-      songState.voices.forEach(v => {
-        try {
-          v.gain.gain.setValueAtTime(v.gain.gain.value, now);
-          v.gain.gain.linearRampToValueAtTime(0, now + 0.01);
-          v.source.stop(now + 0.02);
-        } catch (e) { /* already stopped */ }
-      });
+      const player = songState.player;
+      if (player) {
+        player.gain.gain.cancelScheduledValues(now);
+        player.gain.gain.setValueAtTime(player.gain.gain.value, now);
+        player.gain.gain.linearRampToValueAtTime(0, now + 0.01);
+        setTimeout(() => { player.node.disconnect(); player.gain.disconnect(); }, 40);
+      }
     }
+    songState.player = null;
+    songState.clock = [];
     songState.voices = [];
     songState.playing = false;
+    songState.preparing = false;
     songState.current = -1;
     songState.currentSequence = -1;
   }
@@ -1207,7 +1216,46 @@
     }
   }
 
-  function startSongAtSequence(sequenceStart = 0) {
+  function songPositionAt(time) {
+    const clock = songState.clock;
+    if (!clock.length || time < clock[0].output) return 0;
+    let point = clock[0];
+    for (const next of clock) {
+      if (next.output > time) break;
+      point = next;
+    }
+    return Math.min(songState.endTime, point.input + (time - point.output) * point.rate);
+  }
+
+  async function setSongPlaybackTempo(targetBpm) {
+    const player = songState.player;
+    const request = songPlayRequest;
+    if (!player || !songState.playing) return;
+    songState.tempoChanges = songState.tempoChanges.then(async () => {
+      if (request !== songPlayRequest || songState.player !== player) return;
+      const now = ctx.currentTime;
+      const initial = songState.clock[0];
+      const beforeStart = now < initial.output;
+      const output = beforeStart ? initial.output : now + player.lead;
+      const remaining = songState.clock.filter(point => point.output < output);
+      const point = beforeStart ? initial : remaining[remaining.length - 1];
+      const input = beforeStart ? 0 : Math.min(songState.endTime,
+        point.input + (output - point.output) * point.rate);
+      const next = { output, input, rate: targetBpm / songState.loaded.bpm };
+      await player.node.schedule({ ...next, active: true });
+      if (request === songPlayRequest && songState.player === player) {
+        songState.clock = beforeStart ? [next] : [...remaining, next];
+      }
+    }).catch(error => {
+      if (request !== songPlayRequest) return;
+      console.error('Could not change song tempo', error);
+      stopSong();
+      setSongStatus(`Could not change song tempo: ${error.message}`);
+    });
+    await songState.tempoChanges;
+  }
+
+  async function startSongAtSequence(sequenceStart = 0) {
     ensureCtx();
     const song = songState.loaded;
     if (!song) {
@@ -1218,43 +1266,98 @@
       ? song.sequence : song.tracks.map((_, i) => i);
     sequenceStart = Math.max(0, Math.min(sequence.length - 1, sequenceStart));
     stopSong();
-    const start = ctx.currentTime + 0.05;
-    let offset = 0;
-    songState.startTime = start;
-    songState.current = sequence[sequenceStart];
-    songState.currentSequence = sequenceStart;
-    songState.voices = sequence.slice(sequenceStart).map((trackIndex, relativeIndex) => {
-      const i = trackIndex;
-      const p = pads[i];
-      const track = song.tracks[i];
-      const source = ctx.createBufferSource();
-      const gain = ctx.createGain();
-      const region = padRegion(p);
-      source.playbackRate.value = 2 ** (p.pitch / 12);
-      source.loopStart = region.start;
-      source.loopEnd = region.end;
-      gain.gain.value = p.level;
-      source.buffer = p.buffer;
-      source.connect(gain);
+    const request = songPlayRequest;
+    songState.preparing = true;
+    setSongStatus(`Preparing ${song.title} for pitch-preserving playback...`);
+    let node = null, gain = null;
+    try {
+      if (!ctx.audioWorklet || typeof AudioWorkletNode === 'undefined' ||
+          typeof SignalsmithStretch !== 'function') {
+        throw new Error('Pitch-preserving playback requires AudioWorklet and the stretch library');
+      }
+      if (!Number.isFinite(song.bpm) || song.bpm <= 0) throw new Error('Invalid original song BPM');
+      const voices = [];
+      let frames = 0;
+      for (const [relativeIndex, trackIndex] of sequence.slice(sequenceStart).entries()) {
+        const p = pads[trackIndex];
+        if (!p.buffer) throw new Error(`Missing sample for ${song.tracks[trackIndex].label}`);
+        const region = padRegion(p);
+        const start = frames / ctx.sampleRate;
+        frames += p.buffer.length;
+        voices.push({
+          trackIndex, sequenceIndex: sequenceStart + relativeIndex, start,
+          end: frames / ctx.sampleRate, region, rate: 2 ** (p.pitch / 12),
+          buffer: p.buffer, level: p.level
+        });
+      }
+      try {
+        node = await SignalsmithStretch(ctx);
+      } catch (error) {
+        if (location.protocol === 'file:') {
+          throw new Error(`${error.message}. Local files may block AudioWorklet; run python3 serve.py in the draft folder to open it on localhost.`);
+        }
+        throw error;
+      }
+      if (request !== songPlayRequest) { node.disconnect(); return; }
+      gain = ctx.createGain();
+      node.connect(gain);
       gain.connect(master);
-      gain.gain.setValueAtTime(p.level, start + offset);
-      source.start(start + offset, region.start, region.duration);
-      const voice = {
-        source,
-        gain,
-        trackIndex: i,
-        sequenceIndex: sequenceStart + relativeIndex,
-        start: start + offset,
-        end: start + offset + region.duration / source.playbackRate.value,
-        region,
-        rate: source.playbackRate.value
+      node.onprocessorerror = () => {
+        if (request !== songPlayRequest) return;
+        console.error('Song stretch processor failed');
+        stopSong();
+        setSongStatus('Song playback failed: stretch processor error');
       };
-      offset += p.buffer.duration;
-      return voice;
-    });
-    songState.endTime = start + offset;
-    songState.playing = true;
-    setSongStatus(`${song.title} playing`);
+      const chunkSize = Math.round(ctx.sampleRate * 10);
+      for (let first = 0; first < frames; first += chunkSize) {
+        const length = Math.min(chunkSize, frames - first);
+        const chunkStart = first / ctx.sampleRate;
+        const chunkEnd = (first + length) / ctx.sampleRate;
+        const offline = new OfflineAudioContext(2, length, ctx.sampleRate);
+        for (const voice of voices) {
+          const voiceEnd = voice.start + voice.region.duration / voice.rate;
+          if (voice.start >= chunkEnd || voiceEnd <= chunkStart) continue;
+          const skip = Math.max(0, chunkStart - voice.start);
+          const source = offline.createBufferSource();
+          const trackGain = offline.createGain();
+          source.buffer = voice.buffer;
+          source.playbackRate.value = voice.rate;
+          trackGain.gain.value = voice.level;
+          source.connect(trackGain);
+          trackGain.connect(offline.destination);
+          source.start(Math.max(0, voice.start - chunkStart),
+            voice.region.start + skip * voice.rate, voice.region.duration - skip * voice.rate);
+        }
+        const audio = await offline.startRendering();
+        if (request !== songPlayRequest) { node.disconnect(); gain.disconnect(); return; }
+        const channels = [0, 1].map(c => audio.getChannelData(c).slice());
+        await node.addBuffers(channels, channels.map(channel => channel.buffer));
+        if (request !== songPlayRequest) { node.disconnect(); gain.disconnect(); return; }
+      }
+      const lead = Math.max(0.15, await node.latency() + 0.05);
+      if (request !== songPlayRequest) { node.disconnect(); gain.disconnect(); return; }
+      const start = ctx.currentTime + lead;
+      const initial = { output: start, input: 0, rate: bpm / song.bpm };
+      await node.schedule({ ...initial, active: true });
+      if (request !== songPlayRequest) { node.disconnect(); gain.disconnect(); return; }
+      songState.player = { node, gain, lead };
+      songState.clock = [initial];
+      songState.startTime = start;
+      songState.endTime = frames / ctx.sampleRate;
+      songState.voices = voices;
+      songState.current = sequence[sequenceStart];
+      songState.currentSequence = sequenceStart;
+      songState.preparing = false;
+      songState.playing = true;
+      setSongStatus(`${song.title} playing`);
+    } catch (error) {
+      if (node) node.disconnect();
+      if (gain) gain.disconnect();
+      if (request !== songPlayRequest) return;
+      songState.preparing = false;
+      setSongStatus(`Could not play song: ${error.message}`);
+      console.error('Could not play song', error);
+    }
   }
 
   function startSong(fromIndex = 0) {
@@ -1323,7 +1426,7 @@
 
   function startTransport() {
     if (view === 'song') {
-      if (playing || songState.playing) stopAll();
+      if (playing || songState.playing || songState.preparing) stopAll();
       startSong(songStartIndex());
     } else {
       startPlay();
@@ -1331,7 +1434,7 @@
   }
 
   function toggleTransport() {
-    if (playing || songState.playing) stopAll();
+    if (playing || songState.playing || songState.preparing) stopAll();
     else startTransport();
   }
 
@@ -1485,7 +1588,10 @@
 
   $('patBtn').onclick = () => { view = view === 'pattern' ? 'pads' : 'pattern'; };
   $('songBtn').onclick = () => { view = view === 'song' ? 'pads' : 'song'; };
-  $('bpm').oninput = e => { bpm = Number(e.target.value); };
+  $('bpm').oninput = e => {
+    bpm = Number(e.target.value);
+    if (songState.playing) setSongPlaybackTempo(bpm);
+  };
   $('vol').oninput = e => { if (master) master.gain.value = Number(e.target.value); };
   $('clear').onclick = () => {
     songLoadRequest++;
@@ -1510,6 +1616,7 @@
 
   $('songSelect').onchange = e => {
     songLoadRequest++;
+    stopSong();
     songState.selected = Number(e.target.value);
     songState.loaded = null;
     clearSongEditor();
@@ -1667,11 +1774,14 @@
         : p.start + elapsed / p.buffer.duration;
       playhead = Math.min(p.end, position);
     } else {
+      const songPosition = songPositionAt(ctx.currentTime);
       const songVoice = songState.voices.find(v =>
-        v.trackIndex === k && ctx.currentTime >= v.start && ctx.currentTime < v.end);
+        v.trackIndex === k && songPosition >= v.start && songPosition < v.end);
       if (songVoice) {
-        const elapsed = (ctx.currentTime - songVoice.start) * songVoice.rate;
-        playhead = Math.min(p.end, p.start + elapsed / p.buffer.duration);
+        const elapsed = (songPosition - songVoice.start) * songVoice.rate;
+        if (elapsed <= songVoice.region.duration) {
+          playhead = Math.min(p.end, p.start + elapsed / p.buffer.duration);
+        }
       }
     }
     if (playhead !== null) {
@@ -1828,12 +1938,13 @@
       const now = ctx.currentTime;
       while (uiQueue.length && uiQueue[0].time <= now) curStep = uiQueue.shift().step;
       if (songState.playing) {
-        const index = songState.voices.findIndex(v => now >= v.start && now < v.end);
+        const position = songPositionAt(now);
+        const index = songState.voices.findIndex(v => position >= v.start && position < v.end);
         if (index >= 0) {
           songState.current = songState.voices[index].trackIndex;
           songState.currentSequence = songState.voices[index].sequenceIndex;
         }
-        if (now >= songState.endTime) stopSong();
+        if (position >= songState.endTime) stopSong();
       }
     }
     if (curStep !== drawnStep) {
@@ -1845,15 +1956,15 @@
     let nextPreviewPad = -1;
     let nextPreviewOn = false;
     if (ctx && songState.playing && songState.voices.length > 1) {
-      const now = ctx.currentTime;
-      const currentVoiceIndex = songState.voices.findIndex(v => now >= v.start && now < v.end);
+      const position = songPositionAt(ctx.currentTime);
+      const currentVoiceIndex = songState.voices.findIndex(v => position >= v.start && position < v.end);
       if (currentVoiceIndex >= 0 && currentVoiceIndex < songState.voices.length - 1) {
         const currentVoice = songState.voices[currentVoiceIndex];
         const quarterDuration = 60 / (songState.loaded.bpm || bpm);
         const lastBarStart = Math.max(currentVoice.start, currentVoice.end - quarterDuration * 4);
-        if (now >= lastBarStart) {
+        if (position >= lastBarStart) {
           nextPreviewPad = songState.voices[currentVoiceIndex + 1].trackIndex;
-          nextPreviewOn = Math.floor((now - lastBarStart) / (quarterDuration / 2)) % 2 === 0;
+          nextPreviewOn = Math.floor((position - lastBarStart) / (quarterDuration / 2)) % 2 === 0;
         }
       }
     }
@@ -1880,7 +1991,7 @@
     $('songBtn').classList.toggle('active', view === 'song');
     $('patternView').hidden = view !== 'pattern';
     $('songView').hidden = view !== 'song';
-    const transportPlaying = playing || songState.playing;
+    const transportPlaying = playing || songState.playing || songState.preparing;
     $('play').classList.toggle('active', transportPlaying);
     $('play').textContent = transportPlaying ? '■ STOP' : '▶ PLAY';
     $('rec').classList.toggle('active', recOn);
@@ -1908,7 +2019,7 @@
         ? songState.voices.find(v => v.sequenceIndex === sequenceIndex)
         : null;
       const progress = voice
-        ? Math.max(0, Math.min(1, (ctx.currentTime - voice.start) / (voice.end - voice.start)))
+        ? Math.max(0, Math.min(1, (songPositionAt(ctx.currentTime) - voice.start) / (voice.end - voice.start)))
         : 0;
       row.classList.toggle('active', songState.playing && sequenceIndex === songState.currentSequence);
       row.style.setProperty('--step-progress', `${progress * 100}%`);
